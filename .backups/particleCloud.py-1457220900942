@@ -1,0 +1,222 @@
+import time
+import numpy as np
+import math
+from sonarClass import Sonar
+from Canvas import Canvas
+
+class particleCloud:
+    numberOfParticles = 50
+    numberOfWalls = 8
+    
+    def __init__(self, s, _canvas):
+        # canvas = Canvas()
+        self.canvas = _canvas
+        
+        self.sonar = s
+
+        O = (0, 0)
+        A = (0, 168)
+        B = (84, 168)
+        C = (84, 126)
+        D = (84, 210)
+        E = (168, 210)
+        F = (168, 84)
+        G = (210, 84)
+        H = (210, 0)
+        
+        self.walls = np.array([O + A,
+                 A + B,
+                 C + D,
+                 D + E,
+                 E + F,
+                 F + G,
+                 G + H,
+                 H + O])
+        
+        self.xWallDiff = self.walls[:,2] - self.walls[:,0]
+        self.yWallDiff = self.walls[:,3] - self.walls[:,1]
+        
+        self.wallMinX = np.min([self.walls[:, 0], self.walls[:, 2]], axis=0)            
+        self.wallMaxX = np.max([self.walls[:, 0], self.walls[:, 2]], axis=0)
+        self.wallMinY = np.min([self.walls[:, 1], self.walls[:, 3]], axis=0)
+        self.wallMaxY = np.max([self.walls[:, 1], self.walls[:, 3]], axis=0)
+                
+        for wall in self.walls:
+            self.canvas.drawLine(wall)
+        
+        self.resetCloud(0, 0, 0.1)
+        
+    def resetCloud(self, x, y, theta):
+        self.particles = np.zeros((self.numberOfParticles, 3))
+        self.particles[:, 0] += x
+        self.particles[:, 1] += y
+        self.particles[:, 2] += theta
+                
+        # Add a bit of noise to the particle cloud
+        self.particles[:, 0] += np.random.normal(0, 5, self.numberOfParticles)
+        self.particles[:, 1] += np.random.normal(0, 5, self.numberOfParticles)
+        self.particles[:, 2] += np.random.normal(0, math.pi * 0.1, self.numberOfParticles)    
+        
+        self.weights =  np.zeros(self.numberOfParticles)
+        self.weights.fill(1 / float(self.numberOfParticles))
+        # self.update(0, 0, 0)
+    
+    def updateStraight(self, p, dX, dY):
+        Z = math.sqrt((dX ** 2) + (dY ** 2))
+        X = Z * (1 + np.random.normal(0, 0.10)) # 5% error
+        
+        # Computing a new theta here gives us a distance error with the angle error
+        dT = np.random.normal(0, 0.05 * math.pi) * (Z / 100.0)
+        p[2] += dT 
+        
+        p[0] += X * math.cos(p[2]) 
+        p[1] += X * math.sin(p[2])
+        # print Z
+        
+            
+        return p
+    
+    def updateTurn(self, p, dTheta):
+        Z = (1 + np.random.normal(0,0.05))
+        p[2] += dTheta * Z
+        
+        return p            
+        
+    def update_rt(self, dX, dY, dTheta):
+        self.update_sonar_rt()
+        self.update_odometry_rt(dX, dY, dTheta)
+        
+    def update_sonar_rt(self):
+        t1 = time.clock()
+        sonarMeasurement, sonarAngle = self.sonar.getSonarAndAngleReading()
+        
+        t2 = time.clock()
+        
+        if sonarMeasurement < 150:
+            likelihoods_rt = self._likelihoodCloud_rt(sonarMeasurement, sonarAngle)    
+            t3 = time.clock()
+            self.particles = self.resampling(likelihoods_rt, self.particles)
+            
+            t4 = time.clock()
+            print "Getting sonar reading took {0} seconds, Likelihoods took {1} seconds, Resampling took {2} seconds, and the whole update took {3} seconds".format(t2 - t1, t3 - t2, t4 - t3, t4 - t1)
+            self.canvas.drawParticles(map(tuple,self.particles))
+
+    def update_odometry_rt(self, dX, dY, dTheta):
+        for p in self.particles:
+            p = self.updateStraight(p, dX, dY)
+            p = self.updateTurn(p, dTheta)
+                
+        self.canvas.drawParticles(map(tuple,self.particles))
+        
+    def _circular_mean(self, angles):
+        x = y = 0.
+        for angle, weight in zip(angles, self.weights):
+            x += math.cos(angle) * weight
+            y += math.sin(angle) * weight
+        
+        mean = math.atan2(y, x)
+        
+        return mean
+
+    def getBestLocation(self):
+        # Note, to start with we will just average our location estimate
+        avgX = np.sum(self.particles[:, 0] * self.weights)
+        avgY = np.sum(self.particles[:, 1] * self.weights)
+        avgT = self._circular_mean(self.particles[:, 2])
+        
+        self.canvas.drawArrow(np.array([avgX, avgY, avgT]))
+        return np.array([avgX, avgY, avgT])
+    
+    def _stDev(self, loc):
+        st = np.zeros(self.numberOfParticles)
+        for i in range(self.numberOfParticles):
+            st[i] = self._eDistance(loc, self.particles[i])
+        
+        return st.std()
+    
+    def getBestLocAndStd(self):
+        best = self.getBestLocation()
+        std = self._stDev(best)
+        
+        return best, std
+            
+            
+    def _eDistance(self, start, end):
+        """
+        Returns the euclidean distance between two sets of coordinates
+        :rtype: float
+        :param start: x, y coordinates (integers)
+        :type start: np.array
+        :param end: x, y coordinates (integers)
+        :type end: np.array
+        """
+        dXY = start[:2] - end[:2]
+        dXY **= 2
+
+        return math.sqrt(dXY.sum())
+    
+    def _likelihoodCloud_rt(self, sonarMeasurement, sonarAngle):
+        probabilities = np.zeros(self.numberOfParticles)
+        
+        for i in range(self.numberOfParticles):
+            particle = self.particles[i]
+            # Compute the intersections to walls
+            xDiff = self.walls[:,0] - particle[0]
+            yDiff = self.walls[:,1] - particle[1]
+                        
+            numerator = (self.yWallDiff * xDiff) - (self.xWallDiff * yDiff)
+            denominator = (self.yWallDiff * math.cos(particle[2] + sonarAngle))-(self.xWallDiff * math.sin(particle[2] + sonarAngle))
+             
+            # Compute distance to walls
+            intersections = numerator / denominator
+            intersections[intersections < 0] = np.inf           
+            
+            # Compute the minimum valid distance
+            xIntersect = particle[0] + (intersections * math.cos(particle[2] + sonarAngle))
+            yIntersect = particle[1] + (intersections * math.sin(particle[2] + sonarAngle))
+                        
+            valid  = xIntersect <= self.wallMaxX
+            valid *= xIntersect >= self.wallMinX
+            valid *= yIntersect <= self.wallMaxY
+            valid *= yIntersect >= self.wallMinY
+            
+            intersections[valid == False] = np.inf
+            minDistance = intersections[np.argmin(intersections)]
+            
+            """
+            if i % 10 == 0 and minDistance < np.inf:
+                wI = np.argmin(intersections)                
+                sonarLoc = [particle[0] + math.cos(particle[2] + sonarAngle) * sonarMeasurement, particle[1] + math.sin(particle[2] + sonarAngle) * sonarMeasurement]
+                line = [particle[0], particle[1], xIntersect[wI], yIntersect[wI]]
+                self.canvas.drawLine(line)
+                self.canvas.drawWaypoint(sonarLoc, 1)
+                self.canvas.drawArrow(particle, arrowSz=3)
+            """
+            
+            likelihood = 0
+            if minDistance < np.inf:
+                exponent = (math.pow((minDistance-sonarMeasurement),2)*-1)/(2*math.pow(self.sonar.sigma,2))
+                likelihood = math.exp(exponent)
+                
+            probabilities[i] = likelihood + 0.01
+        
+        return probabilities
+    
+        
+    def resampling(self, likelihoods, particles):
+        
+        newParticles = np.zeros((self.numberOfParticles, 3))
+        totWeight = likelihoods.sum()
+        
+        if totWeight==0:
+            return particles
+
+        likelihoods /= totWeight
+        weightRanges = likelihoods.cumsum()
+        particleProbs = np.random.uniform(size=self.numberOfParticles)            
+        for i in range(self.numberOfParticles):
+            j = np.abs(np.floor(weightRanges - particleProbs[i])).argmin()
+            
+            newParticles[i] = particles[j]
+                    
+        return newParticles

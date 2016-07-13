@@ -1,0 +1,141 @@
+import brickpi
+import time
+from sonarClass import Sonar
+import math
+import os
+
+class Sonar360:
+    
+        
+    def getSonar360(self):
+
+        interface=brickpi.Interface()
+        interface.initialize()
+
+        motors = [1]
+
+        interface.motorEnable(motors[0])
+
+        
+        #Assume corrctly tuned
+        motorParams = interface.MotorAngleControllerParameters()
+        motorParams.maxRotationAcceleration = 6.0
+        motorParams.maxRotationSpeed = 4.0
+        motorParams.feedForwardGain = 255/20.0
+        motorParams.minPWM = 5.0
+        motorParams.pidParameters.minOutput = -255
+        motorParams.pidParameters.maxOutput = 255
+        motorParams.pidParameters.k_p = 172.0
+        motorParams.pidParameters.k_i = 16.0
+        motorParams.pidParameters.k_d = 150.0
+
+        interface.setMotorAngleControllerParameters(motors[0],motorParams)
+
+        
+        interface.sensorEnable(0, brickpi.SensorType.SENSOR_ULTRASONIC)
+        sonarSensor = Sonar(interface, 0)
+        
+        #Set angle diff between readings
+        
+        degreeIncs = 72  # 10 degree increments
+        
+        full360 = 42.0 # calibrated value of 42.0
+        full180 = full360/2.0
+        turnIncrement = full360 / degreeIncs 
+        
+        x = 0
+        turned = 0.0
+        
+        sonarSignatures = []
+             
+        #Turn 180 right while taking sonar readings
+        """
+        interface.startLogging("log1.dat")
+        interface.setMotorRotationSpeedReferences(motors,[4])
+        
+        print "Press Ctrl+C to exit"
+        while True:
+            time.sleep(1)
+        interface.stopLogging("log1.dat")
+        interface.terminate()
+        return "huj"
+        
+"""     
+        full360 = 17.486 + 0.836
+        increments = full360/72 #make 5 degrees for start
+        
+        
+        startAngle = interface.getMotorAngles(motors)[0][0] 
+        motorAngle = startAngle
+        sonarMeasurements = [0] * 360
+        #print sonarSensor.getSonarReading()
+        # and ((motorAngle-startAngle) // 5 < 72)
+        #round((motorAngle - startAngle) // 0.25159)
+        i = 0   
+        
+        interface.increaseMotorAngleReferences(motors,[full360])
+        while (motorAngle < (startAngle + full360 - 0.075)):
+            motorAngle = interface.getMotorAngles(motors)[0][0]
+            #sonarMeasurements[i] = sonarSensor.getSonarReading()
+            #i += 1
+            sonarSignatures.append(sonarSensor.getSonarReading())
+            
+        print len(sonarSignatures)
+        print sonarSignatures
+        interface.increaseMotorAngleReferences(motors,[-full360])
+        
+        time.sleep(5.5)
+        """
+        while not interface.motorAngleReferencesReached(motors) :
+            motorAngles = interface.getMotorAngles(motors) 
+            time.sleep(0.5)
+            #print motorAngles
+        """
+        #interface.increaseMotorAngleReferences(motors,[-17.486/2 - 0.490])
+        
+        """
+        while not interface.motorAngleReferencesReached(motors) :
+            motorAngles = interface.getMotorAngles(motors) 
+            time.sleep(0.5)
+            #print motorAngles  
+        """
+        #time.sleep(2.5)
+        interface.terminate()
+        return "huj"
+    
+        """
+        while (turned < full180):
+            #sonarSignatures.append(sonarSensor.getSonarReading())
+            interface.increaseMotorAngleReferences(motors,[turnIncrement])
+            while not interface.motorAngleReferencesReached(motors) :
+                print "Waiting"
+            x = x + 1
+            #print turned
+            turned = turned + turnIncrement
+        
+        turned = 0
+        x = 0
+        
+        while (turned < full360):
+            sonarSignatures.append(sonarSensor.getSonarReading())
+            interface.increaseMotorAngleReferences(motors,[-turnIncrement])
+            x = x + 1
+            #print turned
+            turned = turned + turnIncrement        
+        
+        turned = 0
+        x = 0
+        
+        while (turned < full180):
+            sonarSignatures.append(sonarSensor.getSonarReading())
+            interface.increaseMotorAngleReferences(motors,[turnIncrement])
+            x = x + 1
+            #print turned        
+            turned = turned + turnIncrement
+        """
+        
+        interface.terminate()
+
+        
+        # return array of sonar readings
+        return sonarSignatures

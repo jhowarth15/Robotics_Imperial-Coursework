@@ -1,0 +1,95 @@
+import brickpi
+import time
+import math
+import numpy as np
+
+class Sonar:
+    interface = []
+    port = 0
+    sigma = 3
+    motorTurn = 3.1
+    zeroAngle = 0
+    turnDirection = 1
+    epsilon = 0.6
+    turning = False
+    
+    def __init__(self,interf,p):
+        # Setup sonar sensor
+        self.interface = interf
+        self.port = p
+        self.interface.sensorEnable(0, brickpi.SensorType.SENSOR_ULTRASONIC)
+        
+        # Setup sonar motor
+        self.motors = [1]
+
+        self.interface.motorEnable(self.motors[0])
+
+        self.motorParams = self.interface.MotorAngleControllerParameters()
+        self.motorParams.maxRotationAcceleration = 9.0
+        self.motorParams.maxRotationSpeed = 6.0
+        self.motorParams.feedForwardGain = 255/20.0
+        self.motorParams.minPWM = 5.0
+        self.motorParams.pidParameters.minOutput = -255
+        self.motorParams.pidParameters.maxOutput = 255
+        self.motorParams.pidParameters.k_p = 100.0
+        self.motorParams.pidParameters.k_i = 100.0
+        self.motorParams.pidParameters.k_d = 80.0
+
+        self.interface.setMotorAngleControllerParameters(self.motors[0], self.motorParams)
+        # ASSUMPTION: ASSUMES MOTOR STARTS FACING FORWARD!
+        zeroAngle = self.interface.getMotorAngles(self.motors)[0][0]
+        
+    def getSonarReading(self):
+        
+        i = 10
+        sonarReadings = np.zeros(i)
+        
+        
+        for j in range(i):
+            sonarReadings[j] = self.interface.getSensorValue(self.port)[0]
+            time.sleep(0.00105) #change this to change the speed of reading(this is enough for ~240
+            
+            
+        print "Sonar Readings:", sonarReadings, "Median: ", np.median(sonarReadings)
+        return np.median(sonarReadings)
+
+
+    def getSonarAndAngleReading(self):
+        i = 10
+        sonarReadings = np.zeros(i)
+        sonarAngles = np.zeros(i)
+        
+        
+        for j in range(i):
+            sonarReadings[j] = self.interface.getSensorValue(self.port)[0]
+            sonarAngles[j] = self.interface.getMotorAngles(self.motors)[0][0]
+            time.sleep(0.00105) #change this to change the speed of reading(this is enough for ~240
+            
+        sonarAngles /= self.motorTurn
+        self._turnSonar()
+        return np.median(sonarReadings) - 1.5, np.mean(sonarAngles)
+        
+    def _turnSonar(self):
+        angle = self.interface.getMotorAngles(self.motors)[0][0]
+        angleChange = (math.pi * self.motorTurn) / 2.0 # Turn 90 degrees
+        
+        if abs(angle - self.zeroAngle) < self.epsilon:
+            # Motor is at the zero position
+            self.interface.increaseMotorAngleReferences(self.motors,[self.turnDirection * angleChange])
+            print "Sonar at zero position"
+            
+        if angle - self.zeroAngle > angleChange - self.epsilon:
+            # Motor is at the far right position
+            angleChange = (math.pi * self.motorTurn) / 2.0 # Turn 90 degrees
+            self.interface.increaseMotorAngleReferences(self.motors,[-angleChange])
+            self.turnDirection = -1
+            print "Sonar at far right position"
+            
+        if self.zeroAngle - angle > angleChange - self.epsilon:
+            # Motor is at the far left position
+            angleChange = (math.pi * self.motorTurn) / 2.0 # Turn 90 degrees
+            self.interface.increaseMotorAngleReferences(self.motors,[angleChange])
+            self.turnDirection = 1
+            print "Sonar at far left position"
+            
+        print "Sonar at", angle - self.zeroAngle

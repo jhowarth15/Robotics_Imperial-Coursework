@@ -1,0 +1,62 @@
+import brickpi
+import time
+from sonarClass import Sonar
+import math
+
+class Sonar360Readings:
+    
+        
+    def getSonar360(self):
+
+        interface=brickpi.Interface()
+        interface.initialize()
+
+        motors = [1]
+
+        interface.motorEnable(motors[0])
+
+        
+        #Assume corrctly tuned
+        motorParams = interface.MotorAngleControllerParameters()
+        motorParams.maxRotationAcceleration = 9.0
+        motorParams.maxRotationSpeed = 6.0
+        motorParams.feedForwardGain = 255/20.0
+        motorParams.minPWM = 5.0
+        motorParams.pidParameters.minOutput = -255
+        motorParams.pidParameters.maxOutput = 255
+        motorParams.pidParameters.k_p = 100.0
+        motorParams.pidParameters.k_i = 100.0
+        motorParams.pidParameters.k_d = 80.0
+
+        interface.setMotorAngleControllerParameters(motors[0],motorParams)
+
+        
+        #Set angle diff between readings
+        full360 = 9.5
+        full180 = full360/2
+        turnIncrement = full360 / 360  # 1 degree
+        x = 0
+        turned = 0.0
+        
+        sonarSignatures = []
+             
+        #Turn 180 right while taking sonar readings
+        while (turned < full180)
+            sonarSignatures.append(sonar.getSonarReading())
+            interface.increaseMotorAngleReferences(motors,[turnIncrement])
+            x = x + 1
+            turned = turned + turnIncrement
+        
+        #Turn 360 left while taking sonar readings
+        
+        
+        
+        #Turn 180 right while taking sonar readings
+        
+        
+        
+        interface.terminate()
+
+        
+        # return array of sonar readings
+        return sonarSignatures[]

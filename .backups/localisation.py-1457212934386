@@ -1,0 +1,63 @@
+import numpy as np
+import math as math
+
+"""Defines the 8 walls a-h, with each row of the form (Ax,Ay,Bx,By)"""
+walls = np.array([[0,0,0,168],
+                 [0,168,84,168],
+                 [84,126,84,210],
+                 [84,210,168,210],
+                 [168,210,168,84],
+                 [168,84,210,84],
+                 [210,84,210,0],
+                  [210,0,0,0]])
+
+numberOfWalls = 8
+sigma = 10 #Standard deviation of the sonar - TBU
+
+
+""" T0 BE COMPLETED - needs to take an array of particles as argument """
+def likelihood(particle,sonarMeasurement):
+        m = computeMinIntersection(particle)
+        print m
+        exponent = (pow((m-sonarMeasurement),2)*-1)/(2*pow(sigma,2))
+        return math.exp(exponent)
+
+"""TO BE COMPLETED - finds the shortest valid intersection of the particle with a wall"""
+def computeMinIntersection(particle):
+        m = np.array(computeIntersections(particle))
+        currentMin = np.nanargmin(m) #Index of the smallest value in m (not nan)
+        xIntersect = particle[0]+m[currentMin]*math.cos(particle[2])
+        yIntersect = particle[1]+m[currentMin]*math.sin(particle[2])
+        if not (validIntersection(currentMin,xIntersect,yIntersect)):
+                print ("false") #need to update the current min to the next smallest and try again
+                
+        return m[currentMin]
+
+""" Returns an array representing the distance to each of the walls a-h,
+with negative distances replaced by nan""" 
+
+def computeIntersections(particle):
+    xWallDiff = walls[:,2] - walls[:,0]
+    yWallDiff = walls[:,3] - walls[:,1]
+    xDiff = walls[:,0]- particle[0]
+    yDiff = walls[:,1]- particle[1]
+    numerator = yWallDiff*xDiff - xWallDiff*yDiff
+    denominator = yWallDiff*math.cos(particle[2])-xWallDiff*math.sin(particle[2])
+    m = numerator/denominator
+    for i in range(numberOfWalls):
+        if (m[i]<0):
+                m[i]=np.nan
+    return m
+
+        
+"""Checks that the intersection is within the bounds of the wall. 
+Returns false if out of bounds"""
+
+def validIntersection(wall, xIntersect, yIntersect):
+    if (xIntersect<walls[wall,0] or xIntersect>walls[wall,2] or yIntersect<walls[wall,1] or yIntersect>walls[wall,3]):
+            return False
+    else:
+            return True
+
+#Test function            
+likelihood([10,10,1.57],150)

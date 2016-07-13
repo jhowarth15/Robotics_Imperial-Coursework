@@ -1,0 +1,128 @@
+import brickpi
+import time
+import numpy as np
+import math as math
+from robot import robot 
+
+
+"""Defines the 8 walls a-h, with each row of the form (Ax,Ay,Bx,By)"""
+walls = np.array([[0,0,0,168],
+                 [0,168,84,168],
+                 [84,126,84,210],
+                 [84,210,168,210],
+                 [168,210,168,84],
+                 [168,84,210,84],
+                 [210,84,210,0],
+                  [210,0,0,0]])
+
+numberOfWalls = 8
+sigma = 3 #Standard deviation of the sonar
+numberOfParticles = 100
+
+def getSonarReading():
+    interface=brickpi.Interface()
+    interface.initialize()
+    
+    port = 0 # port which ultrasoic sensor is plugged in to
+
+    interface.sensorEnable(port, brickpi.SensorType.SENSOR_ULTRASONIC);
+
+    usReading = interface.getSensorValue(port)
+
+    if usReading:
+        return usReading[0]
+    else:
+        print "Failed US reading"
+
+""" Takes an array of particles and returns an array of  likelihood probabilities given the sonar measurement """
+
+def likelihoodCloud(particles,sonarMeasurement):
+        probabilities=[0]*numberOfParticles #Initialise probabilities to zero
+        for i in range(numberOfParticles):
+                probabilities[i]=likelihood(particles[i],sonarMeasurement) #Update probabilities
+        # print probabilities
+        return probabilities
+
+"""Takes one particle and finds the likelihood value using the Gaussian from lecture notes """
+def likelihood(particle,sonarMeasurement):
+        distanceToWalls=np.array(computeIntersections(particle))
+        minValidDistance=computeMinIntersection(particle,distanceToWalls)
+        if minValidDistance==-1:
+            return 0
+        else:
+            exponent = (math.pow((minValidDistance-sonarMeasurement),2)*-1)/(2*math.pow(sigma,2))
+            return math.exp(exponent) #Add constant??
+
+
+""" Returns the minimum valid intersection of a particle with a wall """
+
+def computeMinIntersection(particle,m):
+        if (np.isnan(m).all()):
+            return -1
+        currentMin = np.nanargmin(m) #Index of the smallest value in m (not nan) 
+        xIntersect = particle[0]+m[currentMin]*math.cos(particle[2])
+        yIntersect = particle[1]+m[currentMin]*math.sin(particle[2])
+        if not (validIntersection(currentMin,xIntersect,yIntersect)):
+                m[currentMin]=np.nan
+                return computeMinIntersection(particle,m)
+        else:
+                return m[currentMin]
+""" Returns an array representing the distance to each of the walls a-h,
+with negative distances replaced by nan""" 
+
+def computeIntersections(particle):
+    xWallDiff = walls[:,2] - walls[:,0]
+    yWallDiff = walls[:,3] - walls[:,1]
+    xDiff = walls[:,0]- particle[0]
+    yDiff = walls[:,1]- particle[1]
+    numerator = yWallDiff*xDiff - xWallDiff*yDiff
+    denominator = yWallDiff*math.cos(particle[2])-xWallDiff*math.sin(particle[2])
+    m = numerator/denominator
+    for i in range(numberOfWalls):
+        if (m[i]<0):
+                m[i]=np.nan
+    return m
+
+
+"""Checks that the intersection is within the bounds of the wall. 
+Returns false if out of bounds"""
+
+def validIntersection(wall, xIntersect, yIntersect):
+    if (xIntersect<walls[wall,0] or xIntersect>walls[wall,2] or yIntersect<walls[wall,1] or yIntersect>walls[wall,3]):
+            return False
+    else:
+            return True
+        
+""" Calculates the angle of incidence of the robot to the wall """
+def angleOfIncidence(particle):
+    distanceToWalls = np.array(computeIntersections(particle))
+    wall = computeWallIntersection(particle, distanceToWalls)
+    a_x = walls[wall:,0]
+    a_y = walls[wall:,1]
+    b_x = walls[wall:,2]
+    b_y = walls[wall:,3]
+    numerator = math.cos(particle[2])*(a_y-b_y) + math.sin(particle[2])*(b_x-a_x)
+    denominator = math.sqrt( math.pow(a_y-b_y, 2) + math.pow(b_x-a_x, 2) )
+    return math.acos(numerator/denominator)
+    
+    
+
+    
+""" Returns the wall index corresponding to the minimum valid intersection """
+def computeWallIntersection(particle,m):
+        if (np.isnan(m).all()):
+            return -1
+        currentMin = np.nanargmin(m) #Index of the smallest value in m (not nan) 
+        xIntersect = particle[0]+m[currentMin]*math.cos(particle[2])
+        yIntersect = particle[1]+m[currentMin]*math.sin(particle[2])
+        if not (validIntersection(currentMin,xIntersect,yIntersect)):
+                m[currentMin]=np.nan
+                return computeWallIntersection(particle,m)
+        else:
+                return currentMin
+
+#Test function            
+#sonarMeasurement=robot.getSonarReading()
+#likelihoodCloud(np.array([[-10,-10,-1]]),sonarMeasurement)
+#print np.random.rand(2,3)
+# likelihoodCloud(np.random.rand(numberOfParticles, 3)+1,240)

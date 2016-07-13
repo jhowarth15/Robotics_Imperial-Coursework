@@ -1,0 +1,302 @@
+import brickpi
+import time
+import math
+import numpy as np
+from particleCloud import particleCloud
+from sonarClass import Sonar
+from place_rec_bits import SignatureContainer
+from place_rec_bits import LocationSignature
+
+class Robot:
+    driveCoeff = 0.297 #0.2919
+    turnCoeff = 2.732 * 1.07 * 0.99# 3.10*1.05 #2.733 * 1.05
+    wheelbase = turnCoeff * 2.0
+    maxDistance = 10
+    
+    motors = [0, 2]
+    sonarPort = 0
+    logName = "log.dat"
+    epsilon = 0.03
+    
+    newPWM = 25.0
+    newFeedForwardGain = (225/20) / 2
+    maxRotAcc = 10 # 12
+    maxRotSpeed = 6 #8 # 10
+    k_p = 400 # 500
+    k_i = 300 # 675
+    k_d = 80 # 580
+
+    targetErrorCM = 3.0
+    targetErrorPCT = 0.05
+    
+    def getStartingLocation(self):
+        return self.startingLocation
+    
+    def __init__(self, waypoints, _canvas):
+        self.canvas = _canvas
+        
+        self.interface = brickpi.Interface()
+        self.interface.initialize()
+
+        self.interface.motorEnable(self.motors[0])
+        self.interface.motorEnable(self.motors[1])
+
+        self._init_forwardMotors()
+        self._init_turnMotors()
+
+        print "Initializing sonar"
+        self.interface.sensorEnable(self.sonarPort, brickpi.SensorType.SENSOR_ULTRASONIC)
+        self.sonarSensor = Sonar(self.interface,self.sonarPort)
+        
+        print "Finding location"
+        self.startingLocation, angle = self.identify_location()
+        
+        print "Initializing particle clouds"
+        self.pc = particleCloud(self.sonarSensor, self.canvas)
+        # self.pc.resetCloud(location[0], location[1], location[2])
+        self.pc.resetCloud(waypoints[self.startingLocation][0], waypoints[self.startingLocation][1], angle)
+        
+        
+        self.canvas.drawSonarCloud([waypoints[self.startingLocation][0], waypoints[self.startingLocation][1], angle])
+        # self.interface.startLogging(self.logName)
+        print "ROBOT READY!"
+
+    def __enter__(self):
+        return self
+
+
+    # def __exit__(self, exc_type, exc_value, traceback):
+         # self.interface.stopLogging(self.logName)
+
+    def _init_forwardMotors(self):
+        self.motorParamsForward = self.interface.MotorAngleControllerParameters()
+        self.motorParamsForward.maxRotationAcceleration = self.maxRotAcc 
+        self.motorParamsForward.maxRotationSpeed = self.maxRotSpeed 
+        self.motorParamsForward.feedForwardGain = self.newFeedForwardGain
+        self.motorParamsForward.minPWM = self.newPWM 
+        self.motorParamsForward.pidParameters.minOutput = -255
+        self.motorParamsForward.pidParameters.maxOutput = 255
+        self.motorParamsForward.pidParameters.k_p = self.k_p
+        self.motorParamsForward.pidParameters.k_i = self.k_i        
+        self.motorParamsForward.pidParameters.k_d = self.k_d
+    
+    def _init_turnMotors(self):
+        self.motorParamsTurn = self.interface.MotorAngleControllerParameters()
+        self.motorParamsTurn.maxRotationAcceleration = self.maxRotAcc
+        self.motorParamsTurn.maxRotationSpeed = self.maxRotSpeed / 2.0 # 6.0
+        self.motorParamsTurn.feedForwardGain = self.newFeedForwardGain 
+        self.motorParamsTurn.minPWM = self.newPWM
+        self.motorParamsTurn.pidParameters.minOutput = -255
+        self.motorParamsTurn.pidParameters.maxOutput = 255
+        self.motorParamsTurn.pidParameters.k_p = self.k_p
+        self.motorParamsTurn.pidParameters.k_i = self.k_i
+        self.motorParamsTurn.pidParameters.k_d = self.k_d
+    
+        
+    def _move_to_location(self, angleDiff):
+        # self.interface.increaseMotorAngleReferences(self.motors,[angleDiff[0] + self.epsilon, angleDiff[1] + self.epsilon])
+        self.interface.increaseMotorAngleReferences(self.motors,angleDiff)
+                                                                 
+        motorAngles = self.interface.getMotorAngles(self.motors)
+        refAngle = self.interface.getMotorAngleReferences(self.motors)
+        
+        # newLoc = self.pc_rt.getBestLocation()
+        
+        while (abs(motorAngles[0][0] - refAngle[0]) > self.epsilon) and (abs(motorAngles[1][0] - refAngle[1]) > self.epsilon):                
+                motorAngles = self.interface.getMotorAngles(self.motors)
+                refAngle = self.interface.getMotorAngleReferences(self.motors)
+                time.sleep(0.1)
+                
+                
+    def _move_to_location_rt(self, angleDiff, goal):
+        # Set motor angles
+        self.interface.increaseMotorAngleReferences(self.motors, angleDiff)
+        motorAngles = motorAngleStart = self.interface.getMotorAngles(self.motors)
+        refAngle = self.interface.getMotorAngleReferences(self.motors)
+        
+        estDest = np.zeros(2)
+        newProjDest = np.zeros(2)
+
+        t1 = time.time()
+        while (abs(motorAngles[0][0] - refAngle[0]) > self.epsilon) and (abs(motorAngles[1][0] - refAngle[1]) > self.epsilon):             
+                # Update sonar 
+                self.pc.update_sonar_rt()
+                newLoc = self.pc.getBestLocation()
+                
+                # Update odometry
+                prevAngle = [motorAngles[0][0], motorAngles[1][0]]                
+                motorAngles = self.interface.getMotorAngles(self.motors)
+                dX,dY = self.xyMove(newLoc[2], prevAngle, motorAngles)                
+                self.pc.update_odometry_rt(dX, dY, 0)
+                newLoc = self.pc.getBestLocation()
+                
+                # Remaining straight line distance on the drive program
+                distanceRemaining = self._motorAngles_straight_line_distance(refAngle, motorAngles)
+                
+                # Compute the estimated error to our objective
+                estDest[0] = newLoc[0] + math.cos(newLoc[2]) * distanceRemaining
+                estDest[1] = newLoc[1] + math.sin(newLoc[2]) * distanceRemaining
+                goalError = self._eDistance(estDest, goal)
+                
+                errCutoff = max(self.targetErrorCM, distanceRemaining * self.targetErrorPCT)
+                if goalError > errCutoff:
+                    # We're going to miss the objective by more than our cutoff value!
+                    # Can we fix this with a simple straight line distance correction? 
+                
+                    # Compute the point nearest the goal along this straight line
+                    angleError = newLoc[2] - math.atan2(goal[1] - newLoc[1], goal[0] - newLoc[0])
+                    minDistance = distanceToGoal * math.cos(angleError) 
+                    newProjDest[0] = newLoc[0] + math.cos(newLoc[2]) * minDistance
+                    newProjDest[1] = newLoc[1] + math.sin(newLoc[2]) * minDistance
+
+                    projError = self._eDistance(newProjDest, goal)
+
+
+                    if projError < errCutoff:
+                        # The new error is below our cutoff value, so just make a distance correction
+                        print "I'm making a distance correction!"
+                        
+                        
+                        deltaR = (minDistance - rS) * self.driveCoeff
+
+                        self.interface.setMotorAngleReferences(self.motors, [refAngle[0] + deltaR,refAngle[1] +  deltaR])
+                        refAngle = self.interface.getMotorAngleReferences(self.motors)
+                    else:
+                        # The error is too great, we've got to do a load more corrections
+                        print("I'm making a more substantial correction!")
+                        # Set the motors to stop
+                        self.interface.setMotorAngleReferences(self.motors, [motorAngles[0][0], motorAngles[1][0]])
+                        refAngle = self.interface.getMotorAngleReferences(self.motors)
+
+                        while (abs(motorAngles[0][0] - prevAngle[0]) > 0.1) and (abs(motorAngles[1][0] - prevAngle[1]) >  0.1):
+                            prevAngle = [motorAngles[0][0], motorAngles[1][0]] 
+                            motorAngles = self.interface.getMotorAngles(self.motors)
+                            print "Change in motor angles",  (motorAngles[0][0] - prevAngle[0]), (motorAngles[1][0] - prevAngle[1]) 
+                            time.sleep(0.001)
+
+                        print "Motors stopped"
+
+                        prevAngle = [motorAngles[0][0], motorAngles[1][0]]                
+                        motorAngles = self.interface.getMotorAngles(self.motors)
+                        self.interface.increaseMotorAngleReferences(self.motors, [motorAngles[0][0] - refAngle[0],
+                                                                                  motorAngles[1][0] - refAngle[1]])
+
+                        dX,dY = self.xyMove(newLoc[2], prevAngle, motorAngles)
+                        self.pc.update_odometry_rt(dX, dY, 0)                    
+
+                        # Navigate to waypoint again
+                        self.navigateToWaypoint_rt(goal)
+                        return
+                        
+                        
+                t2 = t1
+                t1 = time.time()
+                print "It was {0} seconds between loops".format(t1 - t2)
+            
+        print "I made it to waypoint without correcting! **********************************"
+    
+    def _motorAngles_straight_line_distance(self, prevAngles, newAngles):
+        #straight line distance covered since last update
+        dSL = (newAngles[0][0] - prevAngles[0])
+        dSR = (newAngles[1][0] - prevAngles[1])
+        dS = ((dSL + dSR) / 2.0) / self.driveCoeff
+        
+    def xyMove(self, theta, prevAngles, newAngles):
+        dS = self._motorAngles_straight_line_distance(prevAngle, newAngles)
+        
+        # Compute coordinate change since last update
+        dX = math.cos(theta) * dS
+        dY = math.sin(theta) * dS
+        return dX, dY
+    
+    def _drive(self, distance):
+        if distance == 0:
+                return
+
+        self.interface.setMotorAngleControllerParameters(self.motors[0],self.motorParamsForward)
+        self.interface.setMotorAngleControllerParameters(self.motors[1],self.motorParamsForward)
+            
+        angle = distance * self.driveCoeff
+        
+        self._move_to_location([angle, angle])
+        
+    def _drive_rt(self, distance, goal):
+        if distance == 0:
+                return
+
+        self.interface.setMotorAngleControllerParameters(self.motors[0],self.motorParamsForward)
+        self.interface.setMotorAngleControllerParameters(self.motors[1],self.motorParamsForward)
+            
+        angle = distance * self.driveCoeff
+        
+        self._move_to_location_rt([angle, angle], goal)
+        
+
+    def _turn(self, angle):
+        if angle == 0:
+                return
+
+        self.interface.setMotorAngleControllerParameters(self.motors[0],self.motorParamsTurn)
+        self.interface.setMotorAngleControllerParameters(self.motors[1],self.motorParamsTurn)
+            
+        if abs(angle) > math.pi:
+            angle = ((2 * math.pi) - abs(angle))*np.sign(angle)*-1
+            
+            
+        angleLeft = angle * self.turnCoeff
+
+        self._move_to_location([angleLeft,-angleLeft])
+        
+    def _eDistance(self, start, end):
+        """
+        Returns the euclidean distance between two sets of coordinates
+        :rtype: float
+        :param start: x, y coordinates (integers)
+        :type start: np.array
+        :param end: x, y coordinates (integers)
+        :type end: np.array
+        """
+        dXY = start[:2] - end[:2]
+        dXY **= 2
+
+        return math.sqrt(dXY.sum())
+     
+    def navigateToWaypoint_rt(self, waypoint):
+        start = self.pc.getBestLocation()
+        print "Navigating from {0} to {1}".format(start, waypoint)
+        
+        dX = waypoint[0] - start[0]
+        dY = waypoint[1] - start[1]
+        dAngle = math.atan2(dY, dX) - start[2]
+        if abs(dAngle) > math.pi:
+              dAngle = ((2 * math.pi) - abs(dAngle))*np.sign(dAngle)*-1            
+    
+        # Turn to face waypoint
+        # Skip very small changes in angle
+        if np.abs(dAngle) > math.pi * 0.01:
+            print "I'm turning {0} rads".format(dAngle)
+            self._turn(dAngle)
+            self.pc.update_rt(0, 0, dAngle)
+            start = self.pc.getBestLocation()
+        else:
+            print "I'm skipping a turn of {0} rads".format(dAngle)
+
+        # Drive straight
+        dist = self._eDistance(start, waypoint)
+        print "I'm driving {0} cm".format(dist)
+        self._drive_rt(dist, waypoint)
+        
+        return self.pc.getBestLocation()        
+        
+    def identify_location(self):
+        sonar360 = SignatureContainer()
+        ls = LocationSignature(300)
+        ls = self.sonarSensor.getSonar360(ls, self.canvas)
+        # sonar360.learn_location(ls)
+        
+        # location = sonar360.recognize_location(ls)
+        # angle = sonar360.recognize_angle(ls, location)
+        location, angle = sonar360.recognize_location_and_angle(ls)
+        print "I'm at location {0}, angle {1}".format(location + 1, angle)
+        
+        return location, angle

@@ -1,0 +1,168 @@
+import brickpi
+import time
+from sonarClass import Sonar
+import math
+import os
+import numpy as np
+
+class Sonar360:
+    def getSonar360(self):
+        interface=brickpi.Interface()
+        interface.initialize()
+
+        motors = [1]
+
+        interface.motorEnable(motors[0])
+
+
+        #Correctly tuned
+        motorParams = interface.MotorAngleControllerParameters()
+        motorParams.maxRotationAcceleration = 6.0
+        motorParams.maxRotationSpeed = 8.0
+        motorParams.feedForwardGain = 255/20.0
+        motorParams.minPWM = 5.0
+        motorParams.pidParameters.minOutput = -255
+        motorParams.pidParameters.maxOutput = 255
+        motorParams.pidParameters.k_p = 172.0
+        motorParams.pidParameters.k_i = 16.0
+        motorParams.pidParameters.k_d = 150.0
+
+        interface.setMotorAngleControllerParameters(motors[0],motorParams)
+
+
+        interface.sensorEnable(0, brickpi.SensorType.SENSOR_ULTRASONIC)
+        sonarSensor = Sonar(interface, 0)
+
+        #Set angle diff between readings
+
+        degreeIncs = 60  # 2 degree increments
+
+
+        sonarSignatures = np.zeros(120)
+
+
+        #Turn 180 right while taking sonar readings
+        full360 = 17.486 + 0.746
+        increment = full360/degreeIncs #make 5 degrees for start
+        startAngle = interface.getMotorAngles(motors)[0][0] 
+        motorAngle = startAngle
+        interface.increaseMotorAngleReferences(motors,[full360])        
+        i = -1 #incerement when angle has incremented by degreeIncs
+
+        while (motorAngle < (startAngle + full360 - 0.077)): #0.077 is a consistent error value for speed
+            motorAngle = interface.getMotorAngles(motors)[0][0]
+            if ((motorAngle-startAngle) // increment) > i:
+                i += 1
+                sonarSignatures[i] = sonarSensor.getSonarReading()
+
+        #print len(sonarSignatures)
+        #print sonarSignatures
+
+        interface.increaseMotorAngleReferences(motors,[-full360/2 + 0.21])
+
+        time.sleep(2.8)
+
+                #interface.increaseMotorAngleReferences(motors,[-17.486/2 - 0.490])
+
+                #time.sleep(2.5)
+        print "terminated"
+        interface.terminate()
+        return sonarSignatures
+    
+    
+    
+    def getSignature(self):
+        
+        interface=brickpi.Interface()
+        interface.initialize()
+
+        motors = [1]
+
+        interface.motorEnable(motors[0])
+
+
+        #Correctly tuned
+        motorParams = interface.MotorAngleControllerParameters()
+        motorParams.maxRotationAcceleration = 6.0
+        motorParams.maxRotationSpeed = 8.0
+        motorParams.feedForwardGain = 255/20.0
+        motorParams.minPWM = 5.0
+        motorParams.pidParameters.minOutput = -255
+        motorParams.pidParameters.maxOutput = 255
+        motorParams.pidParameters.k_p = 172.0
+        motorParams.pidParameters.k_i = 16.0
+        motorParams.pidParameters.k_d = 150.0
+
+        interface.setMotorAngleControllerParameters(motors[0],motorParams)
+
+
+        interface.sensorEnable(0, brickpi.SensorType.SENSOR_ULTRASONIC)
+        sonarSensor = Sonar(interface, 0)
+
+        #Set angle diff between readings
+
+        degreeIncs = 120  # 2 degree increments
+
+
+        sonarSignatures = []
+
+
+        #Turn 180 right while taking sonar readings
+        full360 = 17.486 + 0.726
+        increment = full360/degreeIncs #make 5 degrees for start
+        startAngle = interface.getMotorAngles(motors)[0][0] 
+        motorAngle = startAngle
+        interface.increaseMotorAngleReferences(motors,[full360])        
+        i = -1 #incerement when angle has incremented by degreeIncs
+
+        while (motorAngle < (startAngle + full360 - 0.077)): #0.077 is a consistent error value for speed
+            motorAngle = interface.getMotorAngles(motors)[0][0]
+            if ((motorAngle-startAngle) // increment) > i:
+                i += 1
+                sonarSignatures.append(sonarSensor.getSonarReading())
+
+        #print len(sonarSignatures)
+        #print sonarSignatures
+
+        interface.increaseMotorAngleReferences(motors,[-full360])
+
+        time.sleep(5)
+
+                #interface.increaseMotorAngleReferences(motors,[-17.486/2 - 0.490])
+
+                #time.sleep(2.5)
+        print "terminated"
+        interface.terminate()
+        return sonarSignatures
+    
+     def recognize_location(self, ls_obs):
+        self.characterize_location(ls_obs);
+        dist = [0] * signatures.size
+
+        # FILL IN: COMPARE ls_read with ls_obs and find the best match
+        for idx in range(signatures.size):
+            print "STATUS:  Comparing signature " + str(idx) + " with the observed signature."
+            ls_read = signatures.read(idx);
+            dist[idx] = self.compare_signatures(ls_obs, ls_read)
+        return np.argmin(dist)
+    
+    def recognize_angle(self, sig_id, ls_obs):
+        read_sig = np.array(signatures.read(sig_id).sig)
+        obs_sig = np.array(ls_obs.sig)
+        
+        n = len(obs_sig)
+        
+        err = np.zeros(n)
+        
+        print "STATUS: Estimating angle"
+        for i in range(n):
+            err[i] = np.sum((np.roll(obs_sig, i) - read_sig) ** 2)
+            
+        
+        best_guess = np.argmin(err)
+        
+        est_angle = (best_guess / float(n)) * math.pi
+        
+        print "STATUS: Best angle found. Offset: ", best_guess, ", Angle: ", est_angle
+        
+        return est_angle

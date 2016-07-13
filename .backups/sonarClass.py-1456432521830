@@ -1,0 +1,29 @@
+import brickpi
+import time
+
+class Sonar:
+    interface = []
+    port = 0
+    sigma = 2.5# 3
+    def __init__(self,interf,p):
+        self.interface = interf
+        self.port = p
+        
+    def getSonarReading(self):
+        sonarReading = self.interface.getSensorValue(self.port)
+        while (not sonarReading) or (sonarReading[0] == 255):
+            sonarReading = self.interface.getSensorValue(self.port)
+        
+        return sonarReading
+
+        """
+        if sonarReading:
+            return sonarReading[0]
+        #elif sonarReading[0]==255: 
+            #time.sleep(0.2)
+            #return getSonarReading(self)
+        else:
+            print "error"
+            
+        """
+        

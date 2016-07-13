@@ -1,0 +1,173 @@
+import numpy as np
+import math as math
+import heapq
+from robot import Robot as robot
+from Canvas import Canvas
+import time
+from sonar_return_signature import Sonar360
+
+def neighbours(loc, waypoints):
+    neighbourz = []
+    for xP in range(-1, 2):
+        for xY in range(-1, 2):
+            tLoc = loc + np.array([xP, xY])
+            for wLoc in waypoints:
+                if (tLoc == wLoc).all():
+                    neighbourz.append(tLoc)
+                    break
+
+    return neighbourz
+
+def nHash(n):
+    return '({0},{1})'.format(n[0], n[1])
+
+
+def aStar(start, end, waypoints):
+    """
+    aStar performs an A* search of the waypoints to find the shortest route to the end.
+    The waypoints list assumes that every adjacent (i.e. +/- 1) point is connected.
+
+    :param start: x, y coordinates (integers)
+    :type start: list
+    :param end: x, y coordinates (integers)
+    :type end: list
+    :param waypoints: list of x,y coordinates that can be moved to
+    :type waypoints: list
+    :rtype: list
+    """
+    if start == end: return []
+
+    dtype = [('x', int),('y', int), ('distance', float)]
+
+    current = list(start)
+    frontier = np.array([(start[0], start[1], 0)], dtype=dtype)
+
+    came_from = {}
+    cost_so_far = {}
+    came_from[nHash(start)] = [list(start)]
+    cost_so_far[nHash(start)] = 0
+
+    while len(frontier) != 0:
+        current[0] = frontier[0][0]
+        current[1] = frontier[0][1]
+        frontier = frontier[1:]
+
+        if current == end:
+            return came_from[nHash(current)]
+
+        for next in neighbours(current, waypoints):
+            #print(next)
+            new_cost = cost_so_far[nHash(current)] + 1
+            if nHash(next) not in cost_so_far or new_cost < cost_so_far[nHash(current)]:
+                cost_so_far[nHash(next)] = new_cost
+                priority = new_cost + eDistance(end, next)
+                q = np.array([(next[0], next[1], priority)], dtype=dtype)
+                frontier = np.concatenate((frontier, q))
+
+                #print([list(next)], [list(next)].append(came_from[nHash(current)]))
+                next2 = list(came_from[nHash(current)])
+                next2.append(list(next))
+                came_from[nHash(next)] = list(next2)
+                #came_from[nHash(next)] = list(list(next).append(came_from[nHash(current)]))
+
+        frontier = np.sort(frontier, order='distance')
+            #print(came_from, cost_so_far)
+    #return came_from, cost_so_far
+    return []
+
+def square(dist=40):
+    offset = 100
+    wpts = np.array([[offset, offset, 0],
+                     [offset + dist, offset, 0],
+                     [offset + dist, offset - dist, 0],
+                     [offset, offset - dist, 0],
+                     [offset, offset, 0],
+                     [offset+ 10, offset, 0]])
+    
+    navigateThroughWaypoints(wpts)
+       
+def line(dist=100):
+    
+    offset = 100
+    wpts = np.array([[offset, offset, 0],
+                     [offset + dist, offset, 0],
+                     [offset, offset, 0],
+                     [offset + 10, offset, 0]])
+    
+    navigateThroughWaypoints(wpts)
+    
+
+def userInput():   
+    myLoc = np.array([0, 0, 0])
+    r = robot(myLoc)
+    
+    while True:
+        x = float(input("Enter a x coordinate (in cm): "))
+        y = float(input("Enter a y coordinate (in cm): "))
+        dest = np.array([x, y, 0])
+        myLoc = navigateToWaypoint(myLoc, dest)
+        print(myLoc)
+
+def cwWaypoints():
+    wpts = np.array([[84, 30, 0], #XXX
+                     [132, 30, 0], 
+                     [180, 30, 0], #XXX
+                     [180, 42, 0],
+                     [180, 54, 0], #XXX
+                     [159, 54, 0], 
+                     [138, 54, 0], #XXX
+                     [138, 111, 0], 
+                     [138, 168, 0], #XXX
+                     [126, 168, 0],
+                     [114, 168, 0], #XXX 
+                     [114, 126, 0],
+                     [114, 84, 0], #XXX
+                     [99, 84, 0],
+                     [84, 84, 0], #XXX
+                     [84, 57, 0], 
+                     [84, 30, 0]])
+    
+    navigateThroughWaypoints(wpts)
+
+def compWaypoints():
+    wpts = np.array([[84, 30, 0], # 1
+                     [180, 30, 0], # 2
+                     [180, 54, 0], # 3
+                     [138, 54, 0], # 4                 
+                     [138, 168, 0], # 5
+                     [138, 54, 0], # 4
+                     [84, 30, 0] # 1
+                     ])
+    
+    navigateThroughWaypoints(wpts)
+    
+    
+def navigateThroughWaypoints(wpts):    
+    sonar360 = Sonar360()
+    scanResults = sonar360.getSonar360()
+
+    
+    myLoc = wpts[0]
+    canvas = Canvas()
+    r = robot(myLoc, canvas)
+    
+    for wp in wpts:
+        canvas.drawWaypoint(wp)
+    
+    for wp in wpts[1:]:
+        myLoc = r.navigateToWaypoint_rt(wp)
+        # myLoc = r.navigateToWaypoint(myLoc, wp)
+        print("At location: [{0}, {1}, {2}]".format(myLoc[0], myLoc[1], myLoc[2]))                 
+        time.sleep(1)
+        print '\a'
+        
+        
+if __name__ == "__main__":
+    
+    # line(80)
+    # userInput()
+    
+    #square(100)
+    compWaypoints()
+    # cwWaypoints()
+    # square(80)

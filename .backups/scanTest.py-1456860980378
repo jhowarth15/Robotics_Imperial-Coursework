@@ -1,0 +1,15 @@
+import brickpi
+import time
+from sonarClass import Sonar
+from sonar360readings import Sonar360
+
+sonar360 = Sonar360()
+
+scanResults = sonar360.getSonar360()
+
+print "Sonar signature: "
+
+
+for result in scanResults[:]:
+    print result
+    print ", "

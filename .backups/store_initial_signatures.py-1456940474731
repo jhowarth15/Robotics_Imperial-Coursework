@@ -1,0 +1,13 @@
+import random
+import os
+import math
+import numpy as np
+from sonarClass import Sonar
+from sonar_return_signature import getSignature
+from place_rec_bits import SignatureContainer
+
+newSignature = SignatureContainer()
+
+
+
+print "Hey"

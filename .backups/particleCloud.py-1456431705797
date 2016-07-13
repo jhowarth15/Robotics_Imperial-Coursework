@@ -1,0 +1,236 @@
+import time
+import sys
+import numpy as np
+import random
+import math
+from sonarClass import Sonar
+from Canvas import Canvas
+
+class particleCloud:
+
+    particles = np.array([])
+    weights = np.array([])
+    numberOfParticles = 100
+    sonar = []
+    walls = []
+    canvas = []
+    
+    def __init__(self, s, _canvas):
+        # canvas = Canvas()
+        self.canvas = _canvas
+        
+        self.sonar = s
+
+        O = (0, 0)
+        A = (0, 168)
+        B = (84, 168)
+        C = (84, 126)
+        D = (84, 210)
+        E = (168, 210)
+        F = (168, 84)
+        G = (210, 84)
+        H = (210, 0)
+        
+        self.walls = np.array([O + A,
+                 A + B,
+                 C + D,
+                 D + E,
+                 E + F,
+                 F + G,
+                 G + H,
+                 H + O])
+                
+        for wall in self.walls:
+            self.canvas.drawLine(wall)
+        
+        self.resetCloud(0, 0, 0.1)
+        
+    def resetCloud(self, x, y, theta):
+        self.particles = np.zeros((self.numberOfParticles, 3))
+        self.particles[:, 0] += x
+        self.particles[:, 1] += y
+        self.particles[:, 2] += theta
+        
+        self.weights =  np.zeros(self.numberOfParticles)
+        self.weights.fill(1 / float(self.numberOfParticles))
+        self.update(0, 0, 0)
+    
+    def updateStraight(self, p, dX, dY):
+        Z = math.sqrt((dX ** 2) + (dY ** 2))
+        X = Z * (1 + random.gauss(0, 0.05)) # 5% error
+        
+        # Computing a new theta here gives us a distance error with the angle error
+        dT = random.gauss(0, 0.02 * math.pi) * (Z / 100.0)
+        p[2] += dT #0.31 rad error per meter
+        # print p[2], Z / 100.0, dT
+        
+        p[0] += X * math.cos(p[2]) 
+        p[1] += X * math.sin(p[2])
+        # print Z
+        
+            
+        return p
+    
+    def updateTurn(self, p, dTheta):
+        Z = (1 + random.gauss(0,0.02))
+        p[2] += dTheta * Z
+        
+        return p
+        
+    
+    def update(self, dX, dY, dTheta):
+        # print "Updating by:",  dX, dY, dTheta         
+        t1 = time.clock()
+        
+        # print self.particles[0], [dX, dY, dTheta], math.sqrt((dX ** 2) + (dY ** 2))
+        for p in self.particles:
+            p = self.updateStraight(p, dX, dY)
+            p = self.updateTurn(p, dTheta)
+        
+        
+        t2 = time.clock()
+        
+        sonarMeasurement = self.sonar.getSonarReading() - 1.5 #Offset for robot centre - sonar
+        
+        likelihoods = self._likelihoodCloud(self.particles,sonarMeasurement)    
+        t3 = time.clock()
+        
+        self.particles = self.resampling(likelihoods, self.particles)
+        
+        t4 = time.clock()
+        # print "Updating Odometry took {0} seconds, Likelihoods took {1} seconds, Resampling took {2} seconds, and the whole update took {3} seconds".format(t2 - t1, t3 - t2, t4 - t3, t4 - t1)
+        
+        self.canvas.drawParticles(map(tuple,self.particles))
+        
+    def _circular_mean(self, angles):
+        x = y = 0.
+        for angle, weight in zip(angles, self.weights):
+            x += math.cos(angle) * weight
+            y += math.sin(angle) * weight
+        
+        mean = math.atan2(y, x)
+        
+        return mean
+
+    def getBestLocation(self):
+        # Note, to start with we will just average our location estimate
+        avgX = np.sum(self.particles[:, 0] * self.weights)
+        avgY = np.sum(self.particles[:, 1] * self.weights)
+        avgT = self._circular_mean(self.particles[:, 2])
+        
+        self.canvas.drawArrow(np.array([avgX, avgY, avgT]))
+        return np.array([avgX, avgY, avgT])
+    
+    def _likelihoodCloud(self,particles,sonarMeasurement):
+        probabilities = np.zeros(self.numberOfParticles) #Initialise probabilities to zero
+        for i in range(self.numberOfParticles):
+            probabilities[i] = self._likelihood(particles[i], sonarMeasurement) #Update probabilities
+        
+        return probabilities
+    
+    """Takes one particle and finds the likelihood value using the Gaussian from lecture notes """
+    def _likelihood(self,particle,sonarMeasurement):
+            distanceToWalls = np.array(self._computeIntersections(particle))
+            minValidDistance = self._computeMinIntersection(particle, distanceToWalls)
+            if minValidDistance == -1:
+                return 0
+            else:
+                exponent = (math.pow((minValidDistance-sonarMeasurement),2)*-1)/(2*math.pow(self.sonar.sigma,2))
+                return math.exp(exponent) #Add constant??
+
+
+    """ Returns the minimum valid intersection of a particle with a wall """
+    def _computeMinIntersection(self, particle, m):
+            if (np.isnan(m).all()):
+                return -1
+            currentMin = np.nanargmin(m) #Index of the smallest value in m (not nan) 
+            xIntersect = particle[0]+m[currentMin]*math.cos(particle[2])
+            yIntersect = particle[1]+m[currentMin]*math.sin(particle[2])
+            if not (self._validIntersection(currentMin,xIntersect,yIntersect)):
+                    m[currentMin] = np.nan
+                    return self._computeMinIntersection(particle,m)
+            else:
+                    return m[currentMin]
+                
+    """ Returns an array representing the distance to each of the walls a-h,
+    with negative distances replaced by nan""" 
+    def _computeIntersections(self,particle):
+        xWallDiff = self.walls[:,2] - self.walls[:,0]
+        yWallDiff = self.walls[:,3] - self.walls[:,1]
+        xDiff = self.walls[:,0]- particle[0]
+        yDiff = self.walls[:,1]- particle[1]
+        numerator = (yWallDiff * xDiff) - (xWallDiff * yDiff)
+        denominator = (yWallDiff * math.cos(particle[2]))-(xWallDiff * math.sin(particle[2]))
+        
+        m = np.zeros(8)
+        for d in range (8):
+            if denominator[d] == 0:
+                m[d] = np.nan
+            else:
+                m[d] = numerator[d] / denominator[d]
+                if m[d]<0:
+                    m[d]=np.nan
+        
+        # print m
+        return m
+
+    """Checks that the intersection is within the bounds of the wall. Returns false if out of bounds"""
+    def _validIntersection(self, wall, xIntersect, yIntersect):
+        if (xIntersect<self.walls[wall,0] or xIntersect>self.walls[wall,2] or yIntersect<self.walls[wall,1] or yIntersect>self.walls[wall,3]):
+                return False
+        else:
+                return True
+            
+            
+    def resampling(self, likelihoods, particles):
+        
+        newParticles = np.zeros((self.numberOfParticles, 3)) #newParticles = [(0,0,0) for i in range(self.numberOfParticles)]
+        weightRanges = [0 for i in range(self.numberOfParticles+1)]
+        
+        totWeight = 0.0
+         
+        for i in range(self.numberOfParticles):
+            totWeight += likelihoods[i] #find the total weight
+        
+        if totWeight==0:
+            return particles
+        
+        for i in range(self.numberOfParticles):
+            likelihoods[i] = likelihoods[i]/totWeight #calculate individual weights
+            weightRanges[i+1] = weightRanges[i] + likelihoods[i] #give each particle its range on [0,1]
+        
+        
+                
+        for i in range(self.numberOfParticles):
+            particleProb = random.random()
+            for j in range(self.numberOfParticles):
+                if weightRanges[j] <= particleProb and particleProb < weightRanges[j+1]:
+                    newParticles[i] = particles[j]
+                    break
+                if weightRanges[j+1] == 1:
+                    print "lost a particle"
+                    
+        return newParticles
+        
+    def resampling2(self, likelihoods, particles):
+        
+        newParticles = np.zeros((self.numberOfParticles, 3))
+        totWeight = likelihoods.sum()
+        
+        if totWeight==0:
+            return particles
+
+        likelihoods /= totWeight
+        weightRanges = likelihoods.cumsum()
+                
+        for i in range(self.numberOfParticles):
+            particleProb = random.random()
+            
+            j = np.abs(weightRanges - particleProb).argmin()
+            
+            newParticles[i] = particles[j]
+                    
+        return newParticles
+    
+        
+        

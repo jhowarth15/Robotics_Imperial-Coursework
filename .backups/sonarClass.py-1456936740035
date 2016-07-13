@@ -1,0 +1,47 @@
+import brickpi
+import time
+import numpy as np
+
+class Sonar:
+    interface = []
+    port = 0
+    sigma = 3
+    def __init__(self,interf,p):
+        self.interface = interf
+        self.port = p
+        
+    def getSonarReading(self):
+        
+        i = 10
+        sonarReadings = np.zeros(i)
+        
+        
+        for j in range(i):
+            sonarReadings[j] = self.interface.getSensorValue(self.port)[0]
+            time.sleep(0.00109)
+            
+            
+        #print "Sonar Readings:", sonarReadings, "Median: ", np.median(sonarReadings)
+        return np.median(sonarReadings)
+        """
+        sonarReading = self.interface.getSensorValue(self.port)
+        while ((not sonarReading) or (sonarReading[0] > 250)) and i >= 0:
+            time.sleep(0.05)
+            sonarReading = self.interface.getSensorValue(self.port)
+            i -= 1
+            print sonarReading
+        """
+        
+        # return sonarReading[0]
+
+        """
+        if sonarReading:
+            return sonarReading[0]
+        #elif sonarReading[0]==255: 
+            #time.sleep(0.2)
+            #return getSonarReading(self)
+        else:
+            print "error"
+            
+        """
+        
